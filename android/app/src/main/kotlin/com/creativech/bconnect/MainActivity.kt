@@ -1,4 +1,4 @@
-package com.example.blebeacon.ble_app
+package com.creativech.bconnect
 
 import android.bluetooth.BluetoothAdapter
 import android.content.Intent

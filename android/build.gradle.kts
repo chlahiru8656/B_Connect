@@ -39,6 +39,8 @@ subprojects {
             if (android.namespace.isNullOrEmpty()) {
                 android.namespace = project.group.toString()
             }
+            android.compileSdkVersion(36)
+            android.defaultConfig.targetSdkVersion(34)
         }
     }
 }
