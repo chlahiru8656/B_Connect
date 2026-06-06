@@ -40,7 +40,7 @@ subprojects {
                 android.namespace = project.group.toString()
             }
             android.compileSdkVersion(36)
-            android.defaultConfig.targetSdkVersion(34)
+            android.defaultConfig.targetSdkVersion(36)
         }
     }
 }
