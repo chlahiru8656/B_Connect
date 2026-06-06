@@ -4,6 +4,7 @@ import 'package:beacon_broadcast/beacon_broadcast.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
+import 'package:flutter/services.dart';
 
 class BeaconService {
   static final BeaconService _instance = BeaconService._internal();
@@ -12,6 +13,34 @@ class BeaconService {
 
   final BeaconBroadcast _beaconBroadcast = BeaconBroadcast();
   String? _uuid;
+  
+  static const MethodChannel _bluetoothChannel = MethodChannel('com.example.bconnect/bluetooth');
+
+  /// Checks if Bluetooth is enabled (Android only).
+  Future<bool> isBluetoothEnabled() async {
+    if (Platform.isAndroid) {
+      try {
+        final bool isEnabled = await _bluetoothChannel.invokeMethod('isBluetoothEnabled') ?? false;
+        return isEnabled;
+      } on PlatformException catch (e) {
+        addLog("Error checking Bluetooth state: ${e.message}");
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /// Prompts the user to enable Bluetooth (Android only).
+  Future<void> requestEnableBluetooth() async {
+    if (Platform.isAndroid) {
+      try {
+        await _bluetoothChannel.invokeMethod('enableBluetooth');
+        addLog("Prompting to enable Bluetooth...");
+      } on PlatformException catch (e) {
+        addLog("Error enabling Bluetooth: ${e.message}");
+      }
+    }
+  }
 
   // Track logs for the console output in the UI
   final List<String> _logs = [];
@@ -113,6 +142,14 @@ class BeaconService {
     final BeaconStatus transmissionSupportStatus = await _beaconBroadcast.checkTransmissionSupported();
     if (transmissionSupportStatus != BeaconStatus.supported) {
       addLog("Error: BLE Peripheral transmission is not supported on this device. Status: $transmissionSupportStatus");
+      return;
+    }
+
+    // Check if Bluetooth is enabled on Android
+    final btEnabled = await isBluetoothEnabled();
+    if (!btEnabled) {
+      addLog("Bluetooth is disabled. Requesting to enable...");
+      await requestEnableBluetooth();
       return;
     }
 
