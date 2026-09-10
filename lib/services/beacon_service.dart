@@ -5,6 +5,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import 'package:flutter/services.dart';
+import 'mqtt_service.dart';
 
 class BeaconService {
   static final BeaconService _instance = BeaconService._internal();
@@ -49,6 +50,11 @@ class BeaconService {
   Future<void> init() async {
     _uuid = await getOrCreateUuid();
     addLog("System initialized. Device ID: $_uuid");
+    
+    // Initialize & Connect MQTT Service
+    final mqttService = MqttService();
+    await mqttService.init();
+    mqttService.connect();
   }
 
   void addLog(String message) {

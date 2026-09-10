@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/beacon_service.dart';
+import '../services/mqtt_service.dart';
 
 class BeaconDashboardScreen extends StatefulWidget {
   const BeaconDashboardScreen({super.key});
@@ -13,6 +14,7 @@ class BeaconDashboardScreen extends StatefulWidget {
 
 class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
   final BeaconService _beaconService = BeaconService();
+  final MqttService _mqttService = MqttService();
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   bool _isCopied = false;
@@ -77,7 +79,8 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
   void _showSettingsSheet() {
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.transparent, // Allow custom inner Container theme color
+      backgroundColor:
+          Colors.transparent, // Allow custom inner Container theme color
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -85,14 +88,20 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
         return StatefulBuilder(
           builder: (context, setModalState) {
             final isDark = _isDarkMode;
-            final modalBgColor = isDark ? const Color(0xFF131124) : Colors.white;
+            final modalBgColor = isDark
+                ? const Color(0xFF131124)
+                : Colors.white;
             final textClr = isDark ? Colors.white : const Color(0xFF0F172A);
-            final subTextClr = isDark ? Colors.white54 : const Color(0xFF64748B);
+            final subTextClr = isDark
+                ? Colors.white54
+                : const Color(0xFF64748B);
 
             return Container(
               decoration: BoxDecoration(
                 color: modalBgColor,
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(20),
+                ),
               ),
               child: SafeArea(
                 child: Padding(
@@ -106,10 +115,7 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
                         children: [
                           Row(
                             children: [
-                              Icon(
-                                Icons.settings_rounded,
-                                color: textClr,
-                              ),
+                              Icon(Icons.settings_rounded, color: textClr),
                               const SizedBox(width: 10),
                               Text(
                                 "Settings",
@@ -137,8 +143,12 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
                           Row(
                             children: [
                               Icon(
-                                isDark ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
-                                color: isDark ? Colors.cyanAccent : Colors.orangeAccent,
+                                isDark
+                                    ? Icons.dark_mode_rounded
+                                    : Icons.light_mode_rounded,
+                                color: isDark
+                                    ? Colors.orangeAccent
+                                    : Colors.cyanAccent,
                               ),
                               const SizedBox(width: 12),
                               Text(
@@ -153,7 +163,7 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
                           ),
                           Switch(
                             value: isDark,
-                            activeColor: const Color(0xFF2563EB),
+                            activeThumbColor: const Color(0xFF2563EB),
                             onChanged: (val) async {
                               await _toggleThemeMode();
                               setModalState(() {});
@@ -204,27 +214,48 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
             ),
             child: SafeArea(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 10.0),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20.0,
+                  vertical: 10.0,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     // Header Bar (Safe area handled)
                     _buildHeader(),
 
-                    const SizedBox(height: 30),
+                    const SizedBox(height: 15),
 
-                    // Digital ID Card/Badge (Gradient & Mode Adaptive)
-                    _buildDigitalBadge(),
-
-                    // Large Broadcasting Button with Wave propagation
+                    // Scrollable Dashboard Body
                     Expanded(
-                      child: Center(
-                        child: _buildBroadcastButton(isAdvertising),
+                      child: SingleChildScrollView(
+                        physics: const BouncingScrollPhysics(),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            // MQTT Zone & Link Receiver Card
+                            _buildZoneCard(),
+
+                            const SizedBox(height: 16),
+
+                            // Digital ID Card/Badge (Gradient & Mode Adaptive)
+                            _buildDigitalBadge(),
+
+                            const SizedBox(height: 20),
+
+                            // Large Broadcasting Button with Wave propagation
+                            SizedBox(
+                              height: 260,
+                              child: Center(
+                                child: _buildBroadcastButton(isAdvertising),
+                              ),
+                            ),
+
+                            const SizedBox(height: 30),
+                          ],
+                        ),
                       ),
                     ),
-
-                    // Free bottom space for AdMob ads
-                    const SizedBox(height: 50),
                   ],
                 ),
               ),
@@ -235,7 +266,8 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
     );
   }
 
-  // Header Section
+
+  // Header Section with MQTT Status Pill
   Widget _buildHeader() {
     final primaryColor = _isDarkMode ? Colors.white : const Color(0xFF0F172A);
 
@@ -246,24 +278,19 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
           icon: Icon(Icons.menu_rounded, color: primaryColor, size: 28),
           onPressed: () => _scaffoldKey.currentState?.openDrawer(),
         ),
-        Row(
+        Column(
           children: [
-            Image.asset(
-              "assets/images/logo.png",
-              width: 32,
-              height: 32,
-              errorBuilder: (context, error, stackTrace) => const Icon(Icons.blur_on, color: Color(0xFF2563EB)),
-            ),
-            const SizedBox(width: 10),
             Text(
               "B Connect",
               style: TextStyle(
                 color: primaryColor,
-                fontSize: 22,
+                fontSize: 20,
                 fontWeight: FontWeight.bold,
                 letterSpacing: 0.5,
               ),
             ),
+            const SizedBox(height: 2),
+            _buildMqttStatusPill(),
           ],
         ),
         IconButton(
@@ -274,13 +301,409 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
     );
   }
 
+  // MQTT Connection Status Badge Pill
+  Widget _buildMqttStatusPill() {
+    return ValueListenableBuilder<MqttConnectionState>(
+      valueListenable: _mqttService.connectionStateNotifier,
+      builder: (context, state, child) {
+        Color pillColor;
+        String statusText;
+        IconData statusIcon;
+
+        switch (state) {
+          case MqttConnectionState.connected:
+            pillColor = const Color(0xFF10B981); // Emerald Green
+            statusText = "MQTT Connected";
+            statusIcon = Icons.wifi_rounded;
+            break;
+          case MqttConnectionState.connecting:
+          case MqttConnectionState.reconnecting:
+            pillColor = const Color(0xFFF59E0B); // Amber
+            statusText = "Connecting...";
+            statusIcon = Icons.sync_rounded;
+            break;
+          case MqttConnectionState.disconnected:
+          case MqttConnectionState.error:
+            pillColor = const Color(0xFFEF4444); // Red
+            statusText = "MQTT Offline";
+            statusIcon = Icons.wifi_off_rounded;
+            break;
+        }
+
+        return GestureDetector(
+          onTap: () {
+            if (state == MqttConnectionState.disconnected || state == MqttConnectionState.error) {
+              _mqttService.connect();
+            }
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: pillColor.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: pillColor.withOpacity(0.4), width: 1),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(statusIcon, color: pillColor, size: 11),
+                const SizedBox(width: 4),
+                Text(
+                  statusText,
+                  style: TextStyle(
+                    color: pillColor,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // Zone & Received Website Link Card
+  Widget _buildZoneCard() {
+    final cardBgColor = _isDarkMode ? const Color(0xFF1E1B33) : Colors.white;
+    final borderColor = _isDarkMode ? const Color(0xFF2E2A4F) : const Color(0xFFE2E8F0);
+    final primaryTextColor = _isDarkMode ? Colors.white : const Color(0xFF0F172A);
+    final secondaryTextColor = _isDarkMode ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
+
+    return ValueListenableBuilder<ZoneResponse?>(
+      valueListenable: _mqttService.latestZoneNotifier,
+      builder: (context, zoneData, child) {
+        return Container(
+          padding: const EdgeInsets.all(16.0),
+          decoration: BoxDecoration(
+            color: cardBgColor,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: borderColor, width: 1.0),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.04),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF2563EB).withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.radar_rounded,
+                          color: Color(0xFF2563EB),
+                          size: 18,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            "ZONE LOCATION",
+                            style: TextStyle(
+                              color: secondaryTextColor,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 1.0,
+                            ),
+                          ),
+                          Text(
+                            zoneData != null ? zoneData.zone : "Waiting for signal...",
+                            style: TextStyle(
+                              color: primaryTextColor,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.send_to_mobile_rounded, color: Color(0xFF2563EB), size: 20),
+                    tooltip: "Simulate ESP RSSI Publish",
+                    onPressed: _showMqttSimulatorDialog,
+                  ),
+                ],
+              ),
+              if (zoneData != null && zoneData.website.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: _isDarkMode ? const Color(0xFF131124) : const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: borderColor),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.link_rounded, color: Color(0xFF0EA5E9), size: 16),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              zoneData.website,
+                              style: const TextStyle(
+                                color: Color(0xFF0EA5E9),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                decoration: TextDecoration.underline,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: () => _mqttService.openWebsite(zoneData.website),
+                              icon: const Icon(Icons.open_in_browser_rounded, size: 16),
+                              label: const Text("Open Website"),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF2563EB),
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          OutlinedButton.icon(
+                            onPressed: () {
+                              Clipboard.setData(ClipboardData(text: zoneData.website));
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text("Website link copied!"),
+                                  duration: Duration(seconds: 2),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.copy_rounded, size: 14),
+                            label: const Text("Copy"),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: secondaryTextColor,
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              side: BorderSide(color: borderColor),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ] else ...[
+                const SizedBox(height: 10),
+                Text(
+                  "Subscribed topic: ${_mqttService.subscribeTopic}",
+                  style: TextStyle(
+                    color: secondaryTextColor,
+                    fontSize: 11,
+                    fontFamily: 'monospace',
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _showEditPhoneIdDialog() {
+    final controller = TextEditingController(text: _mqttService.phoneId);
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: _isDarkMode ? const Color(0xFF131124) : Colors.white,
+          title: Text(
+            "Edit Phone Identifier",
+            style: TextStyle(color: _isDarkMode ? Colors.white : const Color(0xFF0F172A)),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                "Sets your unique identifier for MQTT topics (e.g. phone-1, phone-2).",
+                style: TextStyle(
+                  color: _isDarkMode ? Colors.white70 : const Color(0xFF64748B),
+                  fontSize: 12,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black),
+                decoration: InputDecoration(
+                  labelText: "Phone ID",
+                  labelStyle: TextStyle(color: _isDarkMode ? Colors.white60 : Colors.black54),
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Cancel"),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final newId = controller.text.trim();
+                final navigator = Navigator.of(context);
+                if (newId.isNotEmpty) {
+                  await _mqttService.updatePhoneId(newId);
+                  setState(() {});
+                }
+                if (mounted) navigator.pop();
+              },
+              child: const Text("Save"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showMqttSimulatorDialog() {
+    final esp1 = TextEditingController(text: "80");
+    final esp2 = TextEditingController(text: "60");
+    final esp3 = TextEditingController(text: "20");
+    final esp4 = TextEditingController(text: "15");
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        final textClr = _isDarkMode ? Colors.white : const Color(0xFF0F172A);
+        return AlertDialog(
+          backgroundColor: _isDarkMode ? const Color(0xFF131124) : Colors.white,
+          title: Text("Location Data Simulator", style: TextStyle(color: textClr)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "Publishes simulated RSSI data to topic 'phones/location' to trigger zone calculation.",
+                  style: TextStyle(
+                    color: _isDarkMode ? Colors.white70 : const Color(0xFF64748B),
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 15),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: esp1,
+                        keyboardType: TextInputType.number,
+                        style: TextStyle(color: textClr),
+                        decoration: const InputDecoration(labelText: "esp_1", border: OutlineInputBorder()),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextField(
+                        controller: esp2,
+                        keyboardType: TextInputType.number,
+                        style: TextStyle(color: textClr),
+                        decoration: const InputDecoration(labelText: "esp_2", border: OutlineInputBorder()),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: esp3,
+                        keyboardType: TextInputType.number,
+                        style: TextStyle(color: textClr),
+                        decoration: const InputDecoration(labelText: "esp_3", border: OutlineInputBorder()),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextField(
+                        controller: esp4,
+                        keyboardType: TextInputType.number,
+                        style: TextStyle(color: textClr),
+                        decoration: const InputDecoration(labelText: "esp_4", border: OutlineInputBorder()),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Cancel"),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final Map<String, int> espData = {
+                  'esp_1': int.tryParse(esp1.text) ?? 80,
+                  'esp_2': int.tryParse(esp2.text) ?? 60,
+                  'esp_3': int.tryParse(esp3.text) ?? 20,
+                  'esp_4': int.tryParse(esp4.text) ?? 15,
+                };
+                _mqttService.publishLocationData(espRssiMap: espData);
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("Published location data to phones/location")),
+                );
+              },
+              child: const Text("Publish"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+
   // Drawer Sidebar (Notch-safe and mode adaptive)
   Widget _buildDrawer(bool isAdvertising) {
     final fullUuid = _beaconService.uuid;
     final primaryColor = _isDarkMode ? Colors.white : const Color(0xFF0F172A);
-    final secondaryColor = _isDarkMode ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
-    final cardBgColor = _isDarkMode ? const Color(0xFF1E1B33) : const Color(0xFFF8FAFC);
-    final borderColor = _isDarkMode ? const Color(0xFF2E2A4F) : const Color(0xFFE2E8F0);
+    final secondaryColor = _isDarkMode
+        ? const Color(0xFF94A3B8)
+        : const Color(0xFF64748B);
+    final cardBgColor = _isDarkMode
+        ? const Color(0xFF1E1B33)
+        : const Color(0xFFF8FAFC);
+    final borderColor = _isDarkMode
+        ? const Color(0xFF2E2A4F)
+        : const Color(0xFFE2E8F0);
 
     return Drawer(
       child: Container(
@@ -298,14 +721,23 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
             children: [
               // Drawer Header
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-                color: _isDarkMode ? const Color(0xFF131124) : const Color(0xFFF1F5F9),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 15,
+                ),
+                color: _isDarkMode
+                    ? const Color(0xFF131124)
+                    : const Color(0xFFF1F5F9),
                 child: Row(
                   children: [
-                    Icon(Icons.menu_open_rounded, color: primaryColor, size: 24),
+                    Icon(
+                      Icons.menu_open_rounded,
+                      color: primaryColor,
+                      size: 24,
+                    ),
                     const SizedBox(width: 12),
                     Text(
-                      "Menu & Settings",
+                      "Status",
                       style: TextStyle(
                         color: primaryColor,
                         fontSize: 18,
@@ -321,11 +753,14 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
                   ],
                 ),
               ),
-              
+
               // Drawer Body
               Expanded(
                 child: ListView(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 15,
+                  ),
                   children: [
                     // 1. Connection Status
                     Text(
@@ -352,12 +787,16 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
                             height: 10,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              color: _permissionsGranted ? Colors.green : Colors.red,
+                              color: _permissionsGranted
+                                  ? Colors.green
+                                  : Colors.red,
                             ),
                           ),
                           const SizedBox(width: 10),
                           Text(
-                            _permissionsGranted ? "Authorized" : "Awaiting Authorization",
+                            _permissionsGranted
+                                ? "Authorized"
+                                : "Awaiting Authorization",
                             style: TextStyle(
                               color: primaryColor,
                               fontSize: 13,
@@ -372,7 +811,7 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
 
                     // 2. Full Security Identity (UUID) - Unmasked
                     Text(
-                      "FULL SECURITY IDENTITY (UUID)",
+                      "DEVICE ID",
                       style: TextStyle(
                         color: secondaryColor,
                         fontSize: 11,
@@ -394,7 +833,9 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
                             child: Text(
                               fullUuid,
                               style: TextStyle(
-                                color: _isDarkMode ? Colors.white70 : const Color(0xFF334155),
+                                color: _isDarkMode
+                                    ? Colors.white70
+                                    : const Color(0xFF334155),
                                 fontFamily: 'monospace',
                                 fontSize: 11,
                                 fontWeight: FontWeight.w600,
@@ -412,15 +853,23 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
                                     : const Color(0xFF2563EB).withOpacity(0.05),
                                 borderRadius: BorderRadius.circular(8),
                                 border: Border.all(
-                                  color: _isCopied ? const Color(0xFF10B981) : const Color(0xFF2563EB).withOpacity(0.2),
+                                  color: _isCopied
+                                      ? const Color(0xFF10B981)
+                                      : const Color(
+                                          0xFF2563EB,
+                                        ).withOpacity(0.2),
                                 ),
                               ),
                               child: AnimatedSwitcher(
                                 duration: const Duration(milliseconds: 250),
                                 child: Icon(
-                                  _isCopied ? Icons.check_rounded : Icons.copy_rounded,
+                                  _isCopied
+                                      ? Icons.check_rounded
+                                      : Icons.copy_rounded,
                                   key: ValueKey<bool>(_isCopied),
-                                  color: _isCopied ? const Color(0xFF10B981) : const Color(0xFF2563EB),
+                                  color: _isCopied
+                                      ? const Color(0xFF10B981)
+                                      : const Color(0xFF2563EB),
                                   size: 16,
                                 ),
                               ),
@@ -434,7 +883,7 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
 
                     // 3. BLE Permissions
                     Text(
-                      "DEVICE BLE PERMISSIONS",
+                      "DEVICE PERMISSIONS",
                       style: TextStyle(
                         color: secondaryColor,
                         fontSize: 11,
@@ -457,9 +906,11 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
                             child: Text(
                               _permissionsGranted
                                   ? "Bluetooth & location permissions are active."
-                                  : "Permissions needed to scan/broadcast.",
+                                  : "Permissions needed to broadcast.",
                               style: TextStyle(
-                                color: _isDarkMode ? Colors.white70 : const Color(0xFF334155),
+                                color: _isDarkMode
+                                    ? Colors.white70
+                                    : const Color(0xFF334155),
                                 fontSize: 12,
                               ),
                             ),
@@ -469,15 +920,23 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
                               onPressed: _requestPermissions,
                               style: TextButton.styleFrom(
                                 foregroundColor: const Color(0xFF2563EB),
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 0,
+                                ),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(6),
-                                  side: const BorderSide(color: Color(0xFF2563EB)),
+                                  side: const BorderSide(
+                                    color: Color(0xFF2563EB),
+                                  ),
                                 ),
                               ),
                               child: const Text(
                                 "Authorize",
-                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
                             ),
                         ],
@@ -521,7 +980,11 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
                           },
                           child: Row(
                             children: const [
-                              Icon(Icons.delete_sweep_outlined, size: 14, color: Colors.redAccent),
+                              Icon(
+                                Icons.delete_sweep_outlined,
+                                size: 14,
+                                color: Colors.redAccent,
+                              ),
                               SizedBox(width: 4),
                               Text(
                                 "CLEAR",
@@ -541,7 +1004,9 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
                       height: 180,
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: _isDarkMode ? const Color(0xFF07050F) : const Color(0xFF0F172A),
+                        color: _isDarkMode
+                            ? const Color(0xFF07050F)
+                            : const Color(0xFF0F172A),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: ValueListenableBuilder<List<String>>(
@@ -564,15 +1029,22 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
                             itemCount: logs.length,
                             itemBuilder: (context, index) {
                               final log = logs[index];
-                              final isError = log.contains('Error') || log.contains('denied') || log.contains('MISSING');
-                              final isSuccess = log.contains('active') || log.contains('granted') || log.contains('Initialized');
-                              
+                              final isError =
+                                  log.contains('Error') ||
+                                  log.contains('denied') ||
+                                  log.contains('MISSING');
+                              final isSuccess =
+                                  log.contains('active') ||
+                                  log.contains('granted') ||
+                                  log.contains('Initialized');
+
                               Color textColor = Colors.white70;
                               if (isError) {
                                 textColor = Colors.redAccent;
                               } else if (isSuccess) {
                                 textColor = Colors.greenAccent;
-                              } else if (log.contains('Configuring') || log.contains('Starting')) {
+                              } else if (log.contains('Configuring') ||
+                                  log.contains('Starting')) {
                                 textColor = Colors.cyanAccent;
                               }
 
@@ -600,9 +1072,7 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(vertical: 15),
                 decoration: BoxDecoration(
-                  border: Border(
-                    top: BorderSide(color: borderColor),
-                  ),
+                  border: Border(top: BorderSide(color: borderColor)),
                 ),
                 child: const Center(
                   child: Text(
@@ -625,9 +1095,15 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
   // Digital Badge Widget (Gradient Card with soft shadow)
   Widget _buildDigitalBadge() {
     final fullUuid = _beaconService.uuid;
-    final suffixId = fullUuid.length >= 4 ? fullUuid.substring(fullUuid.length - 4) : fullUuid;
-    final secondaryColor = _isDarkMode ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
-    final borderColor = _isDarkMode ? const Color(0xFF2E2A4F) : const Color(0xFFE2E8F0);
+    final suffixId = fullUuid.length >= 4
+        ? fullUuid.substring(fullUuid.length - 4)
+        : fullUuid;
+    final secondaryColor = _isDarkMode
+        ? const Color(0xFF94A3B8)
+        : const Color(0xFF64748B);
+    final borderColor = _isDarkMode
+        ? const Color(0xFF2E2A4F)
+        : const Color(0xFFE2E8F0);
 
     return Container(
       padding: const EdgeInsets.all(24.0),
@@ -646,13 +1122,12 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
                 ],
         ),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: borderColor,
-          width: 1.0,
-        ),
+        border: Border.all(color: borderColor, width: 1.0),
         boxShadow: [
           BoxShadow(
-            color: _isDarkMode ? Colors.black.withOpacity(0.4) : Colors.black.withOpacity(0.04),
+            color: _isDarkMode
+                ? Colors.black.withOpacity(0.4)
+                : Colors.black.withOpacity(0.04),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -661,22 +1136,60 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // App Logo
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: Image.asset(
-              "assets/images/logo.png",
-              width: 42,
-              height: 42,
-              errorBuilder: (context, error, stackTrace) => Container(
-                width: 42,
-                height: 42,
-                color: const Color(0xFF2563EB).withOpacity(0.1),
-                child: const Icon(Icons.blur_on, color: Color(0xFF2563EB), size: 24),
+          // App Logo & Phone ID Badge
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.asset(
+                  "assets/images/B_Connect.png",
+                  width: 42,
+                  height: 42,
+                  errorBuilder: (context, error, stackTrace) => Container(
+                    width: 42,
+                    height: 42,
+                    color: const Color(0xFF2563EB).withOpacity(0.1),
+                    child: const Icon(
+                      Icons.blur_on,
+                      color: Color(0xFF2563EB),
+                      size: 24,
+                    ),
+                  ),
+                ),
               ),
-            ),
+              InkWell(
+                onTap: _showEditPhoneIdDialog,
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF2563EB).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFF2563EB).withOpacity(0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.phone_android_rounded, size: 14, color: Color(0xFF2563EB)),
+                      const SizedBox(width: 6),
+                      Text(
+                        _mqttService.phoneId,
+                        style: const TextStyle(
+                          color: Color(0xFF2563EB),
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      const Icon(Icons.edit_rounded, size: 12, color: Color(0xFF2563EB)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 20),
+
           Text(
             "DEVICE SUFFIX ID",
             style: TextStyle(
@@ -693,24 +1206,15 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
               Text(
                 suffixId.toUpperCase(),
                 style: TextStyle(
-                  color: _isDarkMode ? const Color(0xFF38BDF8) : const Color(0xFF2563EB),
+                  color: _isDarkMode
+                      ? const Color(0xFF38BDF8)
+                      : const Color(0xFF2563EB),
                   fontSize: 36,
                   fontWeight: FontWeight.w900,
                   letterSpacing: 0.5,
                 ),
               ),
               const SizedBox(width: 8),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Text(
-                  "(Suffix)",
-                  style: TextStyle(
-                    color: _isDarkMode ? Colors.white30 : const Color(0xFF94A3B8),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
             ],
           ),
         ],
@@ -720,10 +1224,18 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
 
   // Emoji-Based Broadcast Trigger Button with wave ripple propagation
   Widget _buildBroadcastButton(bool isAdvertising) {
-    final offlineBgColor = _isDarkMode ? const Color(0xFF1E1B33) : const Color(0xFFE2E8F0);
-    final offlineBorderColor = _isDarkMode ? const Color(0xFF2E2A4F) : const Color(0xFFCBD5E1);
-    final offlineTextColor = _isDarkMode ? Colors.white70 : const Color(0xFF334155);
-    final activeRippleColor = _isDarkMode ? const Color(0xFF38BDF8) : const Color(0xFF2563EB);
+    final offlineBgColor = _isDarkMode
+        ? const Color(0xFF1E1B33)
+        : const Color(0xFFE2E8F0);
+    final offlineBorderColor = _isDarkMode
+        ? const Color(0xFF2E2A4F)
+        : const Color(0xFFCBD5E1);
+    final offlineTextColor = _isDarkMode
+        ? Colors.white70
+        : const Color(0xFF334155);
+    final activeRippleColor = _isDarkMode
+        ? const Color(0xFF38BDF8)
+        : const Color(0xFF2563EB);
 
     return WaveRippleEffect(
       isAdvertising: isAdvertising,
@@ -766,7 +1278,9 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
                 shape: BoxShape.circle,
                 color: isAdvertising ? const Color(0xFF2563EB) : offlineBgColor,
                 border: Border.all(
-                  color: isAdvertising ? const Color(0xFF1D4ED8) : offlineBorderColor,
+                  color: isAdvertising
+                      ? const Color(0xFF1D4ED8)
+                      : offlineBorderColor,
                   width: 2.0,
                 ),
               ),
@@ -795,7 +1309,9 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
                       isAdvertising ? "ACTIVE" : "OFFLINE",
                       key: ValueKey<bool>(isAdvertising),
                       style: TextStyle(
-                        color: isAdvertising ? const Color(0xFF93C5FD) : const Color(0xFF94A3B8),
+                        color: isAdvertising
+                            ? const Color(0xFF93C5FD)
+                            : const Color(0xFF94A3B8),
                         fontSize: 9,
                         fontWeight: FontWeight.w800,
                       ),
@@ -821,7 +1337,8 @@ class AnimatedEmoji extends StatefulWidget {
   State<AnimatedEmoji> createState() => _AnimatedEmojiState();
 }
 
-class _AnimatedEmojiState extends State<AnimatedEmoji> with SingleTickerProviderStateMixin {
+class _AnimatedEmojiState extends State<AnimatedEmoji>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _rotationAnimation;
   late Animation<double> _bounceAnimation;
@@ -834,13 +1351,15 @@ class _AnimatedEmojiState extends State<AnimatedEmoji> with SingleTickerProvider
       duration: const Duration(seconds: 2),
     )..repeat(reverse: true);
 
-    _rotationAnimation = Tween<double>(begin: -0.12, end: 0.12).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
+    _rotationAnimation = Tween<double>(
+      begin: -0.12,
+      end: 0.12,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
 
-    _bounceAnimation = Tween<double>(begin: -3.0, end: 3.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
+    _bounceAnimation = Tween<double>(
+      begin: -3.0,
+      end: 3.0,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
   }
 
   @override
@@ -911,7 +1430,8 @@ class WaveRippleEffect extends StatefulWidget {
   State<WaveRippleEffect> createState() => _WaveRippleEffectState();
 }
 
-class _WaveRippleEffectState extends State<WaveRippleEffect> with SingleTickerProviderStateMixin {
+class _WaveRippleEffectState extends State<WaveRippleEffect>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
 
   @override
@@ -999,7 +1519,8 @@ class RunningBlinkDot extends StatefulWidget {
   State<RunningBlinkDot> createState() => _RunningBlinkDotState();
 }
 
-class _RunningBlinkDotState extends State<RunningBlinkDot> with SingleTickerProviderStateMixin {
+class _RunningBlinkDotState extends State<RunningBlinkDot>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _animation;
 
