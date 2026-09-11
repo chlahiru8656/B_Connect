@@ -72,9 +72,12 @@ class MqttService {
   Timer? _reconnectTimer;
   bool _isManualDisconnect = false;
 
-  String get phoneId => _phoneId.isNotEmpty ? _phoneId : BeaconService().uuid;
+  String get phoneId {
+  final id = _phoneId.isNotEmpty ? _phoneId : BeaconService().uuid;
+  return id.length >= 4 ? id.substring(id.length - 4) : id;
+  }
   String get encodedPhoneId => Uri.encodeComponent(phoneId);
-  String get subscribeTopic => 'phones/$encodedPhoneId/zone';
+  String get subscribeTopic => 'phones/$phoneId/zone';
 
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
