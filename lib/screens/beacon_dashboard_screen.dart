@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import '../services/beacon_service.dart';
 import '../services/mqtt_service.dart';
+import 'color_show_screen.dart';
 
 class BeaconDashboardScreen extends StatefulWidget {
   const BeaconDashboardScreen({super.key});
@@ -20,6 +21,8 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
 
   late final WebViewController _webViewController;
 
+  bool _showIsOpen = false;
+  String? _lastShowKey;
   bool _isCopied = false;
   bool _permissionsGranted = false;
   bool _isDarkMode = false;
@@ -28,6 +31,7 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
   void initState() {
     super.initState();
     _initWebView();
+    _mqttService.latestZoneNotifier.addListener(_onZoneReceived);
     _loadThemeMode();
     _checkInitialPermissions();
   }
@@ -35,10 +39,9 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
   void _initWebView() {
     _webViewController = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(const Color(0x00000000))
-      ..loadRequest(Uri.parse("https://aura-sync-new.onrender.com"));
+      ..setBackgroundColor(const Color(0x00000000));
 
-    _mqttService.webViewController = _webViewController;
+
   }
 
 
@@ -508,9 +511,7 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
     return ValueListenableBuilder<ZoneResponse?>(
       valueListenable: _mqttService.latestZoneNotifier,
       builder: (context, zoneData, child) {
-        final currentUrl = zoneData?.website.isNotEmpty == true
-            ? zoneData!.website
-            : "https://aura-sync-new.onrender.com";
+        final currentUrl = zoneData?.website;
 
         return Container(
           padding: const EdgeInsets.all(16.0),
@@ -560,7 +561,7 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
                             ),
                           ),
                           Text(
-                            zoneData != null ? zoneData.zone : "ZONE_A (Default)",
+                            zoneData?.zone ?? "Waiting for ESP signal…",
                             style: TextStyle(
                               color: primaryTextColor,
                               fontSize: 16,
@@ -607,7 +608,7 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        currentUrl,
+                        currentUrl ?? "No zone selected",
                         style: const TextStyle(
                           color: Color(0xFF0EA5E9),
                           fontSize: 11,
@@ -620,7 +621,7 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
                     ),
                     InkWell(
                       onTap: () {
-                        Clipboard.setData(ClipboardData(text: currentUrl));
+                        if (currentUrl != null) Clipboard.setData(ClipboardData(text: currentUrl));
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text("Copied URL to clipboard")),
                         );
@@ -652,7 +653,9 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
                 ),
                 child: ClipRRect(
                   borderRadius: const BorderRadius.vertical(bottom: Radius.circular(10)),
-                  child: WebViewWidget(controller: _webViewController),
+                  child: currentUrl == null
+                      ? const Center(child: Text('Waiting for ESP signal…'))
+                      : WebViewWidget(controller: _webViewController),
                 ),
               ),
             ],
@@ -663,67 +666,46 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
     );
   }
 
-  void _showFullScreenWebView() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) {
-          final isDark = _isDarkMode;
-          final primaryColor = isDark ? Colors.white : const Color(0xFF0F172A);
-          final bgClr = isDark ? const Color(0xFF0F0C20) : Colors.white;
-
-          return Scaffold(
-            backgroundColor: bgClr,
-            appBar: AppBar(
-              backgroundColor: isDark ? const Color(0xFF131124) : const Color(0xFFF1F5F9),
-              elevation: 1,
-              leading: IconButton(
-                icon: Icon(Icons.fullscreen_exit_rounded, color: primaryColor),
-                tooltip: "Exit Full Screen",
-                onPressed: () => Navigator.of(context).pop(),
-              ),
-              title: ValueListenableBuilder<ZoneResponse?>(
-                valueListenable: _mqttService.latestZoneNotifier,
-                builder: (context, zoneData, child) {
-                  final url = zoneData?.website.isNotEmpty == true
-                      ? zoneData!.website
-                      : "https://aura-sync-new.onrender.com";
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        zoneData?.zone ?? "Zone Web View",
-                        style: TextStyle(color: primaryColor, fontSize: 15, fontWeight: FontWeight.bold),
-                      ),
-                      Text(
-                        url,
-                        style: const TextStyle(color: Color(0xFF0EA5E9), fontSize: 11, fontFamily: 'monospace'),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  );
-                },
-              ),
-              actions: [
-                IconButton(
-                  icon: Icon(Icons.refresh_rounded, color: primaryColor),
-                  tooltip: "Reload Page",
-                  onPressed: () => _webViewController.reload(),
-                ),
-              ],
-            ),
-            body: SafeArea(
-              child: WebViewWidget(controller: _webViewController),
-            ),
-          );
-        },
-      ),
-    );
+  void _onZoneReceived() {
+    final zone = _mqttService.latestZoneNotifier.value;
+    if (zone == null) {
+      _lastShowKey = null;
+      return;
+    }
+    if (!mounted || !_mqttService.acceptingZoneMessages || zone.website.isEmpty) return;
+    final key = '${zone.zone}|${zone.website}';
+    if (_lastShowKey == key) return;
+    _lastShowKey = key;
+    if (!_showIsOpen) _showFullScreenWebView();
   }
 
+  Future<void> _showFullScreenWebView() async {
+    if (_showIsOpen || !mounted || !_mqttService.acceptingZoneMessages ||
+        _mqttService.latestZoneNotifier.value == null) return;
+    _showIsOpen = true;
+    try {
+      await Navigator.of(context).push<void>(MaterialPageRoute(
+        builder: (_) => const ColorShowScreen(),
+      ));
+    } finally {
+      _showIsOpen = false;
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      final url = _mqttService.latestZoneNotifier.value?.website;
+      if (mounted && url != null) {
+        try {
+          await _webViewController.loadRequest(Uri.parse(url));
+        } catch (error) {
+          _beaconService.addLog('Dashboard WebView error: $error');
+        }
+      }
+    }
+  }
 
-
-
-
+  @override
+  void dispose() {
+    _mqttService.latestZoneNotifier.removeListener(_onZoneReceived);
+    super.dispose();
+  }
   void _showMqttSimulatorDialog() {
     final esp1 = TextEditingController(text: "80");
     final esp2 = TextEditingController(text: "60");
@@ -1662,3 +1644,5 @@ class _RunningBlinkDotState extends State<RunningBlinkDot>
     );
   }
 }
+
+

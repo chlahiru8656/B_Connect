@@ -6,7 +6,7 @@ import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:webview_flutter/webview_flutter.dart';
+
 import 'beacon_service.dart';
 
 
@@ -55,7 +55,7 @@ class MqttService {
 
   MqttServerClient? _client;
   String _phoneId = '';
-  WebViewController? webViewController;
+
   
   final ValueNotifier<MqttConnectionState> connectionStateNotifier =
       ValueNotifier<MqttConnectionState>(MqttConnectionState.disconnected);
@@ -63,14 +63,19 @@ class MqttService {
   final ValueNotifier<ZoneResponse?> latestZoneNotifier = ValueNotifier<ZoneResponse?>(null);
   final ValueNotifier<int> activeOptionNotifier = ValueNotifier<int>(1); // 1 = Option 1 (1883 TCP), 2 = Option 2 (8883 SSL)
   
-  String? _lastOpenedUrl;
-  DateTime? _lastOpenedTime;
+
 
   static const String _brokerHost = 'broker.emqx.io';
   static const String _publishTopic = 'phones/location';
 
   Timer? _reconnectTimer;
   bool _isManualDisconnect = false;
+  bool acceptingZoneMessages = false;
+
+  void setBroadcastingActive(bool active) {
+    acceptingZoneMessages = active;
+    latestZoneNotifier.value = null;
+  }
 
   String get phoneId {
   final id = _phoneId.isNotEmpty ? _phoneId : BeaconService().uuid;
@@ -80,6 +85,7 @@ class MqttService {
   String get subscribeTopic => 'phones/$phoneId/zone';
 
   Future<void> init() async {
+    setBroadcastingActive(false);
     final prefs = await SharedPreferences.getInstance();
     final deviceUuid = await BeaconService().getOrCreateUuid();
     _phoneId = prefs.getString('mqtt_phone_id') ?? deviceUuid;
@@ -249,6 +255,7 @@ class MqttService {
   }
 
   void _onDisconnected() {
+    latestZoneNotifier.value = null;
     if (connectionStateNotifier.value != MqttConnectionState.reconnecting) {
       connectionStateNotifier.value = MqttConnectionState.disconnected;
     }
@@ -275,6 +282,7 @@ class MqttService {
   }
 
   void _onAutoReconnect() {
+    latestZoneNotifier.value = null;
     connectionStateNotifier.value = MqttConnectionState.reconnecting;
     BeaconService().addLog("MQTT Auto-reconnecting...");
   }
@@ -300,6 +308,15 @@ class MqttService {
   void _onMessagesReceived(List<MqttReceivedMessage<MqttMessage>> events) {
     for (final event in events) {
       final recMsg = event.payload as MqttPublishMessage;
+      if (!acceptingZoneMessages ||
+          connectionStateNotifier.value != MqttConnectionState.connected) {
+        BeaconService().addLog('Ignored zone message: broadcasting is inactive.');
+        continue;
+      }
+      if (recMsg.header?.retain == true) {
+        BeaconService().addLog('Ignored retained zone message.');
+        continue;
+      }
       final payloadStr = MqttPublishPayload.bytesToStringAsString(recMsg.payload.message);
 
       BeaconService().addLog("Received MQTT on [${event.topic}]: $payloadStr");
@@ -308,44 +325,34 @@ class MqttService {
         final Map<String, dynamic> jsonMap = jsonDecode(payloadStr);
         final zoneData = ZoneResponse.fromJson(jsonMap);
 
-        latestZoneNotifier.value = zoneData;
-
-        // Extract website URL
-        if (zoneData.website.isNotEmpty) {
-          _handleWebsiteUrl(zoneData.website, zoneData.zone);
+        // The installation has four valid zones. Normalize the incoming
+        // label so ESP firmware may send either `ZONE_C` or `zone_c`.
+        final normalizedZone = zoneData.zone.toUpperCase();
+        if (!RegExp(r'^ZONE_[A-D]$').hasMatch(normalizedZone)) {
+          BeaconService().addLog('Ignored zone message: unsupported zone ${zoneData.zone}.');
+          continue;
         }
+
+        final uri = Uri.tryParse(zoneData.website);
+        if (event.topic != subscribeTopic || zoneData.phoneId != phoneId ||
+            uri == null || !uri.hasAuthority ||
+            (uri.scheme != 'https' && uri.scheme != 'http')) {
+          BeaconService().addLog('Ignored zone message: invalid phone ID or website.');
+          continue;
+        }
+        latestZoneNotifier.value = ZoneResponse(
+          phoneId: zoneData.phoneId,
+          zone: normalizedZone,
+          baseWebsite: zoneData.baseWebsite,
+          zonePath: zoneData.zonePath,
+          website: zoneData.website,
+          receivedAt: zoneData.receivedAt,
+        );
       } catch (e) {
         BeaconService().addLog("Error parsing MQTT JSON: $e");
       }
     }
   }
-
-  void _handleWebsiteUrl(String url, String zoneName) {
-    final now = DateTime.now();
-
-    // Deduplication check: Avoid re-navigating exact same URL if received within 10 seconds
-    if (_lastOpenedUrl == url &&
-        _lastOpenedTime != null &&
-        now.difference(_lastOpenedTime!).inSeconds < 10) {
-      BeaconService().addLog("Duplicate URL ($url) within 10s. Skipping navigate.");
-      return;
-    }
-
-    _lastOpenedUrl = url;
-    _lastOpenedTime = now;
-
-    BeaconService().addLog("New Zone Link received ($zoneName): $url");
-
-    if (webViewController != null) {
-      try {
-        BeaconService().addLog("Navigating in-app WebView to: $url");
-        webViewController!.loadRequest(Uri.parse(url));
-      } catch (e) {
-        BeaconService().addLog("Error navigating WebView: $e");
-      }
-    }
-  }
-
 
   Future<bool> openWebsite(String urlStr) async {
     try {
@@ -394,6 +401,7 @@ class MqttService {
   }
 
   void disconnect() {
+    latestZoneNotifier.value = null;
     _isManualDisconnect = true;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
@@ -402,3 +410,5 @@ class MqttService {
     BeaconService().addLog("Disconnected from MQTT Broker.");
   }
 }
+
+

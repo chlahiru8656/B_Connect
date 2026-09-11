@@ -136,6 +136,7 @@ class BeaconService {
 
   /// Starts BLE broadcasting (advertising).
   Future<void> startBroadcasting() async {
+    MqttService().setBroadcastingActive(false);
     final hasPermissions = await checkPermissions();
     if (!hasPermissions) {
       final requested = await requestPermissions();
@@ -172,6 +173,9 @@ class BeaconService {
           .setLayout('m:2-3=0215,i:4-19,i:20-21,i:22-23,p:24-24') // Standard iBeacon layout
           .setManufacturerId(0x004C) // Apple CoID to force 4C 00
           .start();
+      // `isAdvertising` can lag behind start() on Android. The successful
+      // completion of start() is the authoritative state for this session.
+      MqttService().setBroadcastingActive(true);
       addLog("Broadcasting active! iBeacon UUID: $currentUuid");
     } catch (e) {
       addLog("Error starting advertisement: $e");
@@ -180,6 +184,7 @@ class BeaconService {
 
   /// Stops BLE broadcasting (advertising).
   Future<void> stopBroadcasting() async {
+    MqttService().setBroadcastingActive(false);
     try {
       addLog("Stopping iBeacon Broadcast...");
       await _beaconBroadcast.stop();
@@ -195,3 +200,4 @@ class BeaconService {
   /// Helper to get the current advertising status.
   Future<bool> get isAdvertising async => (await _beaconBroadcast.isAdvertising()) ?? false;
 }
+
