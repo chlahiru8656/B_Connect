@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 import '../services/beacon_service.dart';
 import '../services/mqtt_service.dart';
 
@@ -17,6 +18,8 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
   final MqttService _mqttService = MqttService();
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
+  late final WebViewController _webViewController;
+
   bool _isCopied = false;
   bool _permissionsGranted = false;
   bool _isDarkMode = false;
@@ -24,9 +27,20 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
   @override
   void initState() {
     super.initState();
+    _initWebView();
     _loadThemeMode();
     _checkInitialPermissions();
   }
+
+  void _initWebView() {
+    _webViewController = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(const Color(0x00000000))
+      ..loadRequest(Uri.parse("https://aura-sync-new.onrender.com/show=a"));
+
+    _mqttService.webViewController = _webViewController;
+  }
+
 
   Future<void> _loadThemeMode() async {
     final prefs = await SharedPreferences.getInstance();
@@ -364,7 +378,7 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
     );
   }
 
-  // Zone & Received Website Link Card
+  // Zone & Embedded In-App WebView Card
   Widget _buildZoneCard() {
     final cardBgColor = _isDarkMode ? const Color(0xFF1E1B33) : Colors.white;
     final borderColor = _isDarkMode ? const Color(0xFF2E2A4F) : const Color(0xFFE2E8F0);
@@ -374,6 +388,10 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
     return ValueListenableBuilder<ZoneResponse?>(
       valueListenable: _mqttService.latestZoneNotifier,
       builder: (context, zoneData, child) {
+        final currentUrl = zoneData?.website.isNotEmpty == true
+            ? zoneData!.website
+            : "https://aura-sync-new.onrender.com/show=a";
+
         return Container(
           padding: const EdgeInsets.all(16.0),
           decoration: BoxDecoration(
@@ -422,7 +440,7 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
                             ),
                           ),
                           Text(
-                            zoneData != null ? zoneData.zone : "Waiting for signal...",
+                            zoneData != null ? zoneData.zone : "ZONE_A (Default)",
                             style: TextStyle(
                               color: primaryTextColor,
                               fontSize: 16,
@@ -433,163 +451,86 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
                       ),
                     ],
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.send_to_mobile_rounded, color: Color(0xFF2563EB), size: 20),
-                    tooltip: "Simulate ESP RSSI Publish",
-                    onPressed: _showMqttSimulatorDialog,
-                  ),
-                ],
-              ),
-              if (zoneData != null && zoneData.website.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: _isDarkMode ? const Color(0xFF131124) : const Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: borderColor),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  Row(
                     children: [
-                      Row(
-                        children: [
-                          const Icon(Icons.link_rounded, color: Color(0xFF0EA5E9), size: 16),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              zoneData.website,
-                              style: const TextStyle(
-                                color: Color(0xFF0EA5E9),
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                decoration: TextDecoration.underline,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
+                      IconButton(
+                        icon: const Icon(Icons.refresh_rounded, color: Color(0xFF2563EB), size: 20),
+                        tooltip: "Reload WebView",
+                        onPressed: () => _webViewController.reload(),
                       ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: () => _mqttService.openWebsite(zoneData.website),
-                              icon: const Icon(Icons.open_in_browser_rounded, size: 16),
-                              label: const Text("Open Website"),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF2563EB),
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 8),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          OutlinedButton.icon(
-                            onPressed: () {
-                              Clipboard.setData(ClipboardData(text: zoneData.website));
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text("Website link copied!"),
-                                  duration: Duration(seconds: 2),
-                                ),
-                              );
-                            },
-                            icon: const Icon(Icons.copy_rounded, size: 14),
-                            label: const Text("Copy"),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: secondaryTextColor,
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              side: BorderSide(color: borderColor),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                          ),
-                        ],
+                      IconButton(
+                        icon: const Icon(Icons.send_to_mobile_rounded, color: Color(0xFF2563EB), size: 20),
+                        tooltip: "Simulate ESP RSSI Publish",
+                        onPressed: _showMqttSimulatorDialog,
                       ),
                     ],
                   ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              // In-App Embedded WebView Address Bar
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: _isDarkMode ? const Color(0xFF131124) : const Color(0xFFF1F5F9),
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
+                  border: Border.all(color: borderColor),
                 ),
-              ] else ...[
-                const SizedBox(height: 10),
-                Text(
-                  "Subscribed topic: ${_mqttService.subscribeTopic}",
-                  style: TextStyle(
-                    color: secondaryTextColor,
-                    fontSize: 11,
-                    fontFamily: 'monospace',
-                  ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.lock_rounded, size: 12, color: Color(0xFF10B981)),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        currentUrl,
+                        style: const TextStyle(
+                          color: Color(0xFF0EA5E9),
+                          fontSize: 11,
+                          fontFamily: 'monospace',
+                          fontWeight: FontWeight.w600,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    InkWell(
+                      onTap: () {
+                        Clipboard.setData(ClipboardData(text: currentUrl));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text("Copied URL to clipboard")),
+                        );
+                      },
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 4),
+                        child: Icon(Icons.copy_rounded, size: 12, color: Color(0xFF64748B)),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
+              // Embedded In-App WebView Frame
+              Container(
+                height: 320,
+                decoration: BoxDecoration(
+                  color: Colors.black,
+                  borderRadius: const BorderRadius.vertical(bottom: Radius.circular(10)),
+                  border: Border.all(color: borderColor),
+                ),
+                child: ClipRRect(
+                  borderRadius: const BorderRadius.vertical(bottom: Radius.circular(10)),
+                  child: WebViewWidget(controller: _webViewController),
+                ),
+              ),
             ],
           ),
         );
+
       },
     );
   }
 
-  void _showEditPhoneIdDialog() {
-    final controller = TextEditingController(text: _mqttService.phoneId);
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          backgroundColor: _isDarkMode ? const Color(0xFF131124) : Colors.white,
-          title: Text(
-            "Edit Phone Identifier",
-            style: TextStyle(color: _isDarkMode ? Colors.white : const Color(0xFF0F172A)),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                "Sets your unique identifier for MQTT topics (e.g. phone-1, phone-2).",
-                style: TextStyle(
-                  color: _isDarkMode ? Colors.white70 : const Color(0xFF64748B),
-                  fontSize: 12,
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: controller,
-                autofocus: true,
-                style: TextStyle(color: _isDarkMode ? Colors.white : Colors.black),
-                decoration: InputDecoration(
-                  labelText: "Phone ID",
-                  labelStyle: TextStyle(color: _isDarkMode ? Colors.white60 : Colors.black54),
-                  border: const OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("Cancel"),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                final newId = controller.text.trim();
-                final navigator = Navigator.of(context);
-                if (newId.isNotEmpty) {
-                  await _mqttService.updatePhoneId(newId);
-                  setState(() {});
-                }
-                if (mounted) navigator.pop();
-              },
-              child: const Text("Save"),
-            ),
-          ],
-        );
-      },
-    );
-  }
+
+
 
   void _showMqttSimulatorDialog() {
     final esp1 = TextEditingController(text: "80");
@@ -1136,59 +1077,27 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // App Logo & Phone ID Badge
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Image.asset(
-                  "assets/images/B_Connect.png",
-                  width: 42,
-                  height: 42,
-                  errorBuilder: (context, error, stackTrace) => Container(
-                    width: 42,
-                    height: 42,
-                    color: const Color(0xFF2563EB).withOpacity(0.1),
-                    child: const Icon(
-                      Icons.blur_on,
-                      color: Color(0xFF2563EB),
-                      size: 24,
-                    ),
-                  ),
+          // App Logo
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Image.asset(
+              "assets/images/B_Connect.png",
+              width: 42,
+              height: 42,
+              errorBuilder: (context, error, stackTrace) => Container(
+                width: 42,
+                height: 42,
+                color: const Color(0xFF2563EB).withOpacity(0.1),
+                child: const Icon(
+                  Icons.blur_on,
+                  color: Color(0xFF2563EB),
+                  size: 24,
                 ),
               ),
-              InkWell(
-                onTap: _showEditPhoneIdDialog,
-                borderRadius: BorderRadius.circular(8),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF2563EB).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0xFF2563EB).withOpacity(0.3)),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.phone_android_rounded, size: 14, color: Color(0xFF2563EB)),
-                      const SizedBox(width: 6),
-                      Text(
-                        _mqttService.phoneId,
-                        style: const TextStyle(
-                          color: Color(0xFF2563EB),
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      const Icon(Icons.edit_rounded, size: 12, color: Color(0xFF2563EB)),
-                    ],
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
           const SizedBox(height: 20),
+
 
           Text(
             "DEVICE SUFFIX ID",

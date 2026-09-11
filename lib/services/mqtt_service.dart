@@ -5,6 +5,7 @@ import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 import 'beacon_service.dart';
 
 enum MqttConnectionState { disconnected, connecting, connected, reconnecting, error }
@@ -12,21 +13,34 @@ enum MqttConnectionState { disconnected, connecting, connected, reconnecting, er
 class ZoneResponse {
   final String phoneId;
   final String zone;
+  final String baseWebsite;
+  final String zonePath;
   final String website;
   final DateTime receivedAt;
 
   ZoneResponse({
     required this.phoneId,
     required this.zone,
+    required this.baseWebsite,
+    required this.zonePath,
     required this.website,
     required this.receivedAt,
   });
 
   factory ZoneResponse.fromJson(Map<String, dynamic> json) {
+    final base = json['baseWebsite']?.toString() ?? '';
+    final path = json['zonePath']?.toString() ?? '';
+    String web = json['website']?.toString() ?? '';
+    if (web.isEmpty && base.isNotEmpty) {
+      web = '$base$path';
+    }
+
     return ZoneResponse(
       phoneId: json['phoneId']?.toString() ?? '',
       zone: json['zone']?.toString() ?? 'Unknown Zone',
-      website: json['website']?.toString() ?? '',
+      baseWebsite: base,
+      zonePath: path,
+      website: web,
       receivedAt: DateTime.now(),
     );
   }
@@ -38,7 +52,8 @@ class MqttService {
   MqttService._internal();
 
   MqttServerClient? _client;
-  String _phoneId = 'phone-1';
+  String _phoneId = '';
+  WebViewController? webViewController;
   
   final ValueNotifier<MqttConnectionState> connectionStateNotifier =
       ValueNotifier<MqttConnectionState>(MqttConnectionState.disconnected);
@@ -52,12 +67,14 @@ class MqttService {
   static const int _brokerPort = 8084;
   static const String _publishTopic = 'phones/location';
 
-  String get phoneId => _phoneId;
-  String get subscribeTopic => 'phones/$_phoneId/zone';
+  String get phoneId => _phoneId.isNotEmpty ? _phoneId : BeaconService().uuid;
+  String get encodedPhoneId => Uri.encodeComponent(phoneId);
+  String get subscribeTopic => 'phones/$encodedPhoneId/zone';
 
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
-    _phoneId = prefs.getString('mqtt_phone_id') ?? 'phone-1';
+    final deviceUuid = await BeaconService().getOrCreateUuid();
+    _phoneId = prefs.getString('mqtt_phone_id') ?? deviceUuid;
     BeaconService().addLog("MQTT Service initialized. Assigned Phone ID: $_phoneId");
   }
 
@@ -188,11 +205,11 @@ class MqttService {
   void _handleWebsiteUrl(String url, String zoneName) {
     final now = DateTime.now();
 
-    // Deduplication check: Avoid reopening exact same URL if opened within the last 15 seconds
+    // Deduplication check: Avoid re-navigating exact same URL if received within 10 seconds
     if (_lastOpenedUrl == url &&
         _lastOpenedTime != null &&
-        now.difference(_lastOpenedTime!).inSeconds < 15) {
-      BeaconService().addLog("Duplicate URL detected ($url). Suppressed duplicate auto-launch.");
+        now.difference(_lastOpenedTime!).inSeconds < 10) {
+      BeaconService().addLog("Duplicate URL ($url) within 10s. Skipping navigate.");
       return;
     }
 
@@ -200,8 +217,17 @@ class MqttService {
     _lastOpenedTime = now;
 
     BeaconService().addLog("New Zone Link received ($zoneName): $url");
-    openWebsite(url);
+
+    if (webViewController != null) {
+      try {
+        BeaconService().addLog("Navigating in-app WebView to: $url");
+        webViewController!.loadRequest(Uri.parse(url));
+      } catch (e) {
+        BeaconService().addLog("Error navigating WebView: $e");
+      }
+    }
   }
+
 
   Future<bool> openWebsite(String urlStr) async {
     try {
@@ -228,7 +254,7 @@ class MqttService {
     }
 
     final Map<String, dynamic> payloadMap = {
-      'phoneId': _phoneId,
+      'phoneId': phoneId,
       ...espRssiMap,
     };
 
