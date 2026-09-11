@@ -36,10 +36,11 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
     _webViewController = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0x00000000))
-      ..loadRequest(Uri.parse("https://aura-sync-new.onrender.com/show=a"));
+      ..loadRequest(Uri.parse("https://aura-sync-new.onrender.com"));
 
     _mqttService.webViewController = _webViewController;
   }
+
 
 
   Future<void> _loadThemeMode() async {
@@ -186,6 +187,125 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
                             },
                           ),
                         ],
+                      ),
+                      const SizedBox(height: 15),
+                      Divider(color: isDark ? Colors.white24 : Colors.black12),
+                      const SizedBox(height: 10),
+                      Text(
+                        "MQTT CONFIGURATION",
+                        style: TextStyle(
+                          color: subTextClr,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.0,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      ValueListenableBuilder<int>(
+                        valueListenable: _mqttService.activeOptionNotifier,
+                        builder: (context, activeOpt, _) {
+                          return Column(
+                            children: [
+                              InkWell(
+                                onTap: () async {
+                                  await _mqttService.setOption(1);
+                                  setModalState(() {});
+                                },
+                                borderRadius: BorderRadius.circular(10),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                  decoration: BoxDecoration(
+                                    color: activeOpt == 1
+                                        ? const Color(0xFF2563EB).withOpacity(0.15)
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: activeOpt == 1 ? const Color(0xFF2563EB) : (isDark ? Colors.white12 : Colors.black12),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        activeOpt == 1 ? Icons.radio_button_checked : Icons.radio_button_off,
+                                        color: activeOpt == 1 ? const Color(0xFF2563EB) : subTextClr,
+                                        size: 20,
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              "Option 1: Port 1883 (Recommended)",
+                                              style: TextStyle(
+                                                color: textClr,
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                            Text(
+                                              "Host: broker.emqx.io | Port: 1883 | TLS: Disabled",
+                                              style: TextStyle(color: subTextClr, fontSize: 11),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              InkWell(
+                                onTap: () async {
+                                  await _mqttService.setOption(2);
+                                  setModalState(() {});
+                                },
+                                borderRadius: BorderRadius.circular(10),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                  decoration: BoxDecoration(
+                                    color: activeOpt == 2
+                                        ? const Color(0xFF2563EB).withOpacity(0.15)
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: activeOpt == 2 ? const Color(0xFF2563EB) : (isDark ? Colors.white12 : Colors.black12),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        activeOpt == 2 ? Icons.radio_button_checked : Icons.radio_button_off,
+                                        color: activeOpt == 2 ? const Color(0xFF2563EB) : subTextClr,
+                                        size: 20,
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              "Option 2: Port 8883 (MQTTS SSL)",
+                                              style: TextStyle(
+                                                color: textClr,
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                            Text(
+                                              "Host: broker.emqx.io | Port: 8883 | TLS: Enabled",
+                                              style: TextStyle(color: subTextClr, fontSize: 11),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          );
+                        },
                       ),
                       const SizedBox(height: 15),
                     ],
@@ -390,7 +510,7 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
       builder: (context, zoneData, child) {
         final currentUrl = zoneData?.website.isNotEmpty == true
             ? zoneData!.website
-            : "https://aura-sync-new.onrender.com/show=a";
+            : "https://aura-sync-new.onrender.com";
 
         return Container(
           padding: const EdgeInsets.all(16.0),
@@ -454,6 +574,11 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
                   Row(
                     children: [
                       IconButton(
+                        icon: const Icon(Icons.open_in_full_rounded, color: Color(0xFF2563EB), size: 20),
+                        tooltip: "Full Screen View",
+                        onPressed: _showFullScreenWebView,
+                      ),
+                      IconButton(
                         icon: const Icon(Icons.refresh_rounded, color: Color(0xFF2563EB), size: 20),
                         tooltip: "Reload WebView",
                         onPressed: () => _webViewController.reload(),
@@ -505,9 +630,18 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
                         child: Icon(Icons.copy_rounded, size: 12, color: Color(0xFF64748B)),
                       ),
                     ),
+                    const SizedBox(width: 8),
+                    InkWell(
+                      onTap: _showFullScreenWebView,
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 4),
+                        child: Icon(Icons.fullscreen_rounded, size: 16, color: Color(0xFF2563EB)),
+                      ),
+                    ),
                   ],
                 ),
               ),
+
               // Embedded In-App WebView Frame
               Container(
                 height: 320,
@@ -528,6 +662,64 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
       },
     );
   }
+
+  void _showFullScreenWebView() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) {
+          final isDark = _isDarkMode;
+          final primaryColor = isDark ? Colors.white : const Color(0xFF0F172A);
+          final bgClr = isDark ? const Color(0xFF0F0C20) : Colors.white;
+
+          return Scaffold(
+            backgroundColor: bgClr,
+            appBar: AppBar(
+              backgroundColor: isDark ? const Color(0xFF131124) : const Color(0xFFF1F5F9),
+              elevation: 1,
+              leading: IconButton(
+                icon: Icon(Icons.fullscreen_exit_rounded, color: primaryColor),
+                tooltip: "Exit Full Screen",
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+              title: ValueListenableBuilder<ZoneResponse?>(
+                valueListenable: _mqttService.latestZoneNotifier,
+                builder: (context, zoneData, child) {
+                  final url = zoneData?.website.isNotEmpty == true
+                      ? zoneData!.website
+                      : "https://aura-sync-new.onrender.com";
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        zoneData?.zone ?? "Zone Web View",
+                        style: TextStyle(color: primaryColor, fontSize: 15, fontWeight: FontWeight.bold),
+                      ),
+                      Text(
+                        url,
+                        style: const TextStyle(color: Color(0xFF0EA5E9), fontSize: 11, fontFamily: 'monospace'),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  );
+                },
+              ),
+              actions: [
+                IconButton(
+                  icon: Icon(Icons.refresh_rounded, color: primaryColor),
+                  tooltip: "Reload Page",
+                  onPressed: () => _webViewController.reload(),
+                ),
+              ],
+            ),
+            body: SafeArea(
+              child: WebViewWidget(controller: _webViewController),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
 
 
 

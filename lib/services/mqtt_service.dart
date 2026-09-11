@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
@@ -7,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'beacon_service.dart';
+
 
 enum MqttConnectionState { disconnected, connecting, connected, reconnecting, error }
 
@@ -59,13 +61,16 @@ class MqttService {
       ValueNotifier<MqttConnectionState>(MqttConnectionState.disconnected);
 
   final ValueNotifier<ZoneResponse?> latestZoneNotifier = ValueNotifier<ZoneResponse?>(null);
+  final ValueNotifier<int> activeOptionNotifier = ValueNotifier<int>(1); // 1 = Option 1 (1883 TCP), 2 = Option 2 (8883 SSL)
   
   String? _lastOpenedUrl;
   DateTime? _lastOpenedTime;
 
   static const String _brokerHost = 'broker.emqx.io';
-  static const int _brokerPort = 8084;
   static const String _publishTopic = 'phones/location';
+
+  Timer? _reconnectTimer;
+  bool _isManualDisconnect = false;
 
   String get phoneId => _phoneId.isNotEmpty ? _phoneId : BeaconService().uuid;
   String get encodedPhoneId => Uri.encodeComponent(phoneId);
@@ -75,16 +80,31 @@ class MqttService {
     final prefs = await SharedPreferences.getInstance();
     final deviceUuid = await BeaconService().getOrCreateUuid();
     _phoneId = prefs.getString('mqtt_phone_id') ?? deviceUuid;
-    BeaconService().addLog("MQTT Service initialized. Assigned Phone ID: $_phoneId");
+    activeOptionNotifier.value = prefs.getInt('mqtt_option') ?? 1; // Default to Option 1 (Port 1883 TCP)
+    BeaconService().addLog("MQTT Service initialized. Assigned Phone ID: $_phoneId | Active Option: Option ${activeOptionNotifier.value}");
+  }
+
+  Future<void> setOption(int option) async {
+    if (option != 1 && option != 2) return;
+    activeOptionNotifier.value = option;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('mqtt_option', option);
+    BeaconService().addLog("MQTT Configuration set to Option $option (${option == 1 ? 'Port 1883 TCP' : 'Port 8883 SSL'})");
+    
+    // Reconnect with selected option
+    _isManualDisconnect = false;
+    _clearOldClient();
+    connect();
   }
 
   Future<void> updatePhoneId(String newPhoneId) async {
     if (newPhoneId.trim().isEmpty || newPhoneId == _phoneId) return;
     
-    // Unsubscribe from old topic if connected
     if (connectionStateNotifier.value == MqttConnectionState.connected && _client != null) {
-      _client!.unsubscribe(subscribeTopic);
-      BeaconService().addLog("Unsubscribed from topic: $subscribeTopic");
+      try {
+        _client!.unsubscribe(subscribeTopic);
+        BeaconService().addLog("Unsubscribed from topic: $subscribeTopic");
+      } catch (_) {}
     }
 
     _phoneId = newPhoneId.trim();
@@ -92,9 +112,22 @@ class MqttService {
     await prefs.setString('mqtt_phone_id', _phoneId);
     BeaconService().addLog("Updated Phone ID to: $_phoneId");
 
-    // Subscribe to new topic if connected
     if (connectionStateNotifier.value == MqttConnectionState.connected && _client != null) {
       _subscribeToZoneTopic();
+    }
+  }
+
+  void _clearOldClient() {
+    if (_client != null) {
+      _client!.onConnected = null;
+      _client!.onDisconnected = null;
+      _client!.onSubscribed = null;
+      _client!.onAutoReconnect = null;
+      _client!.onAutoReconnected = null;
+      try {
+        _client!.disconnect();
+      } catch (_) {}
+      _client = null;
     }
   }
 
@@ -104,15 +137,30 @@ class MqttService {
       return;
     }
 
+    _isManualDisconnect = false;
+    _clearOldClient();
+
+    final targetOption = activeOptionNotifier.value;
+    final port = targetOption == 2 ? 8883 : 1883;
+
     connectionStateNotifier.value = MqttConnectionState.connecting;
-    BeaconService().addLog("Connecting to MQTT Broker at wss://$_brokerHost:$_brokerPort/mqtt...");
+    BeaconService().addLog("Connecting to MQTT Broker at $_brokerHost:$port (Option $targetOption)...");
 
     final clientIdentifier = 'flutter_bconnect_${DateTime.now().millisecondsSinceEpoch}';
     
-    _client = MqttServerClient.withPort(_brokerHost, clientIdentifier, _brokerPort);
-    _client!.useWebSocket = true;
-    _client!.websocketProtocols = MqttClientConstants.protocolsSingleDefault;
+    _client = MqttServerClient.withPort(_brokerHost, clientIdentifier, port);
+    if (port == 8883) {
+      _client!.secure = true;
+      _client!.securityContext = SecurityContext.defaultContext;
+      _client!.onBadCertificate = (dynamic certificate) => true;
+      _client!.useWebSocket = false;
+    } else {
+      _client!.secure = false;
+      _client!.useWebSocket = false;
+    }
+
     _client!.keepAlivePeriod = 30;
+    _client!.connectTimeoutPeriod = 8000;
     _client!.autoReconnect = true;
     _client!.resubscribeOnAutoReconnect = true;
     _client!.logging(on: false);
@@ -125,21 +173,69 @@ class MqttService {
 
     final connMessage = MqttConnectMessage()
         .withClientIdentifier(clientIdentifier)
-        .startClean()
-        .withWillQos(MqttQos.atLeastOnce);
+        .startClean();
 
     _client!.connectionMessage = connMessage;
 
     try {
       await _client!.connect();
     } catch (e) {
-      BeaconService().addLog("MQTT Connection Exception: $e");
+      BeaconService().addLog("MQTT Connection Exception on port $port: $e");
+      
+      // If Option 2 (8883 SSL) fails, fallback to Option 1 (1883 TCP)
+      if (port == 8883) {
+        BeaconService().addLog("Option 2 (Port 8883 SSL) failed. Falling back to Option 1 (Port 1883 TCP)...");
+        _clearOldClient();
+        await _connectPort1883();
+        return;
+      }
+      
       connectionStateNotifier.value = MqttConnectionState.error;
-      _client?.disconnect();
+      _clearOldClient();
+      _startReconnectTimer();
+    }
+  }
+
+  Future<void> _connectPort1883() async {
+    const fallbackPort = 1883;
+    connectionStateNotifier.value = MqttConnectionState.connecting;
+    BeaconService().addLog("Connecting via Option 1 to $_brokerHost:$fallbackPort...");
+    
+    final clientIdentifier = 'flutter_bconnect_${DateTime.now().millisecondsSinceEpoch}';
+    _client = MqttServerClient.withPort(_brokerHost, clientIdentifier, fallbackPort);
+    _client!.secure = false;
+    _client!.useWebSocket = false;
+    _client!.keepAlivePeriod = 30;
+    _client!.connectTimeoutPeriod = 8000;
+    _client!.autoReconnect = true;
+    _client!.resubscribeOnAutoReconnect = true;
+    _client!.logging(on: false);
+
+    _client!.onConnected = _onConnected;
+    _client!.onDisconnected = _onDisconnected;
+    _client!.onSubscribed = _onSubscribed;
+    _client!.onAutoReconnect = _onAutoReconnect;
+    _client!.onAutoReconnected = _onAutoReconnected;
+
+    final connMessage = MqttConnectMessage()
+        .withClientIdentifier(clientIdentifier)
+        .startClean();
+
+    _client!.connectionMessage = connMessage;
+
+    try {
+      await _client!.connect();
+    } catch (e) {
+      BeaconService().addLog("Option 1 Connection Exception: $e");
+      connectionStateNotifier.value = MqttConnectionState.error;
+      _clearOldClient();
+      _startReconnectTimer();
     }
   }
 
   void _onConnected() {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
     connectionStateNotifier.value = MqttConnectionState.connected;
     BeaconService().addLog("MQTT Connected successfully to $_brokerHost");
 
@@ -154,6 +250,25 @@ class MqttService {
       connectionStateNotifier.value = MqttConnectionState.disconnected;
     }
     BeaconService().addLog("MQTT Disconnected.");
+
+    if (!_isManualDisconnect) {
+      _startReconnectTimer();
+    }
+  }
+
+  void _startReconnectTimer() {
+    if (_isManualDisconnect) return;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (connectionStateNotifier.value == MqttConnectionState.disconnected ||
+          connectionStateNotifier.value == MqttConnectionState.error) {
+        BeaconService().addLog("Auto-retry: Attempting to reconnect to MQTT...");
+        connect();
+      } else {
+        _reconnectTimer?.cancel();
+        _reconnectTimer = null;
+      }
+    });
   }
 
   void _onAutoReconnect() {
@@ -276,7 +391,10 @@ class MqttService {
   }
 
   void disconnect() {
-    _client?.disconnect();
+    _isManualDisconnect = true;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _clearOldClient();
     connectionStateNotifier.value = MqttConnectionState.disconnected;
     BeaconService().addLog("Disconnected from MQTT Broker.");
   }
