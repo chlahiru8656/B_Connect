@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:webview_flutter/webview_flutter.dart';
 import '../services/beacon_service.dart';
 import '../services/mqtt_service.dart';
 import 'color_show_screen.dart';
@@ -19,8 +18,6 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
   final MqttService _mqttService = MqttService();
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
-  late final WebViewController _webViewController;
-
   bool _showIsOpen = false;
   String? _lastShowKey;
   bool _isCopied = false;
@@ -30,18 +27,9 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
   @override
   void initState() {
     super.initState();
-    _initWebView();
     _mqttService.latestZoneNotifier.addListener(_onZoneReceived);
     _loadThemeMode();
     _checkInitialPermissions();
-  }
-
-  void _initWebView() {
-    _webViewController = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(const Color(0x00000000));
-
-
   }
 
 
@@ -97,8 +85,8 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
   void _showSettingsSheet() {
     showModalBottomSheet(
       context: context,
-      backgroundColor:
-          Colors.transparent, // Allow custom inner Container theme color
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -115,6 +103,9 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
                 : const Color(0xFF64748B);
 
             return Container(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.85,
+              ),
               decoration: BoxDecoration(
                 color: modalBgColor,
                 borderRadius: const BorderRadius.vertical(
@@ -124,194 +115,238 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
               child: SafeArea(
                 child: Padding(
                   padding: const EdgeInsets.all(20.0),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(Icons.settings_rounded, color: textClr),
-                              const SizedBox(width: 10),
-                              Text(
-                                "Settings",
-                                style: TextStyle(
-                                  color: textClr,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
+                  child: SingleChildScrollView(
+                    physics: const BouncingScrollPhysics(),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(Icons.settings_rounded, color: textClr),
+                                const SizedBox(width: 10),
+                                Text(
+                                  "Settings",
+                                  style: TextStyle(
+                                    color: textClr,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
-                              ),
-                            ],
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.close_rounded),
-                            color: subTextClr,
-                            onPressed: () => Navigator.pop(context),
-                          ),
-                        ],
-                      ),
-                      Divider(color: isDark ? Colors.white24 : Colors.black12),
-                      const SizedBox(height: 10),
-                      // Theme Switcher Row
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(
-                                isDark
-                                    ? Icons.dark_mode_rounded
-                                    : Icons.light_mode_rounded,
-                                color: isDark
-                                    ? Colors.orangeAccent
-                                    : Colors.cyanAccent,
-                              ),
-                              const SizedBox(width: 12),
-                              Text(
-                                isDark ? "Dark Mode" : "Light Mode",
-                                style: TextStyle(
-                                  color: textClr,
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                          Switch(
-                            value: isDark,
-                            activeThumbColor: const Color(0xFF2563EB),
-                            onChanged: (val) async {
-                              await _toggleThemeMode();
-                              setModalState(() {});
-                              // Trigger rebuild of main dashboard
-                              setState(() {});
-                            },
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 15),
-                      Divider(color: isDark ? Colors.white24 : Colors.black12),
-                      const SizedBox(height: 10),
-                      Text(
-                        "MQTT CONFIGURATION",
-                        style: TextStyle(
-                          color: subTextClr,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 1.0,
+                              ],
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close_rounded),
+                              color: subTextClr,
+                              onPressed: () => Navigator.pop(context),
+                            ),
+                          ],
                         ),
-                      ),
-                      const SizedBox(height: 10),
-                      ValueListenableBuilder<int>(
-                        valueListenable: _mqttService.activeOptionNotifier,
-                        builder: (context, activeOpt, _) {
-                          return Column(
-                            children: [
-                              InkWell(
-                                onTap: () async {
-                                  await _mqttService.setOption(1);
-                                  setModalState(() {});
-                                },
-                                borderRadius: BorderRadius.circular(10),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                  decoration: BoxDecoration(
-                                    color: activeOpt == 1
-                                        ? const Color(0xFF2563EB).withOpacity(0.15)
-                                        : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(10),
-                                    border: Border.all(
-                                      color: activeOpt == 1 ? const Color(0xFF2563EB) : (isDark ? Colors.white12 : Colors.black12),
-                                    ),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Icon(
-                                        activeOpt == 1 ? Icons.radio_button_checked : Icons.radio_button_off,
-                                        color: activeOpt == 1 ? const Color(0xFF2563EB) : subTextClr,
-                                        size: 20,
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              "Option 1: Port 1883 (Recommended)",
-                                              style: TextStyle(
-                                                color: textClr,
-                                                fontSize: 14,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                            Text(
-                                              "Host: broker.emqx.io | Port: 1883 | TLS: Disabled",
-                                              style: TextStyle(color: subTextClr, fontSize: 11),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
+                        Divider(color: isDark ? Colors.white24 : Colors.black12),
+                        const SizedBox(height: 10),
+                        // Theme Switcher Row
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  isDark
+                                      ? Icons.dark_mode_rounded
+                                      : Icons.light_mode_rounded,
+                                  color: isDark
+                                      ? Colors.orangeAccent
+                                      : Colors.cyanAccent,
+                                ),
+                                const SizedBox(width: 12),
+                                Text(
+                                  isDark ? "Dark Mode" : "Light Mode",
+                                  style: TextStyle(
+                                    color: textClr,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w500,
                                   ),
                                 ),
-                              ),
-                              const SizedBox(height: 8),
-                              InkWell(
-                                onTap: () async {
-                                  await _mqttService.setOption(2);
-                                  setModalState(() {});
-                                },
-                                borderRadius: BorderRadius.circular(10),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                  decoration: BoxDecoration(
-                                    color: activeOpt == 2
-                                        ? const Color(0xFF2563EB).withOpacity(0.15)
-                                        : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(10),
-                                    border: Border.all(
-                                      color: activeOpt == 2 ? const Color(0xFF2563EB) : (isDark ? Colors.white12 : Colors.black12),
+                              ],
+                            ),
+                            Switch(
+                              value: isDark,
+                              activeThumbColor: const Color(0xFF2563EB),
+                              onChanged: (val) async {
+                                await _toggleThemeMode();
+                                setModalState(() {});
+                                // Trigger rebuild of main dashboard
+                                setState(() {});
+                              },
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 15),
+                        Divider(color: isDark ? Colors.white24 : Colors.black12),
+                        const SizedBox(height: 10),
+                        Text(
+                          "MQTT CONFIGURATION",
+                          style: TextStyle(
+                            color: subTextClr,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1.0,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        ValueListenableBuilder<int>(
+                          valueListenable: _mqttService.activeOptionNotifier,
+                          builder: (context, activeOpt, _) {
+                            return Column(
+                              children: [
+                                InkWell(
+                                  onTap: () async {
+                                    await _mqttService.setOption(1);
+                                    setModalState(() {});
+                                  },
+                                  borderRadius: BorderRadius.circular(10),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                    decoration: BoxDecoration(
+                                      color: activeOpt == 1
+                                          ? const Color(0xFF2563EB).withOpacity(0.15)
+                                          : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: activeOpt == 1 ? const Color(0xFF2563EB) : (isDark ? Colors.white12 : Colors.black12),
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          activeOpt == 1 ? Icons.radio_button_checked : Icons.radio_button_off,
+                                          color: activeOpt == 1 ? const Color(0xFF2563EB) : subTextClr,
+                                          size: 20,
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                "Option 1: Port 1883 (Recommended)",
+                                                style: TextStyle(
+                                                  color: textClr,
+                                                  fontSize: 14,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                              Text(
+                                                "Host: broker.emqx.io | Port: 1883 | TLS: Disabled",
+                                                style: TextStyle(color: subTextClr, fontSize: 11),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                  child: Row(
-                                    children: [
-                                      Icon(
-                                        activeOpt == 2 ? Icons.radio_button_checked : Icons.radio_button_off,
-                                        color: activeOpt == 2 ? const Color(0xFF2563EB) : subTextClr,
-                                        size: 20,
+                                ),
+                                const SizedBox(height: 8),
+                                InkWell(
+                                  onTap: () async {
+                                    await _mqttService.setOption(2);
+                                    setModalState(() {});
+                                  },
+                                  borderRadius: BorderRadius.circular(10),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                    decoration: BoxDecoration(
+                                      color: activeOpt == 2
+                                          ? const Color(0xFF2563EB).withOpacity(0.15)
+                                          : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: activeOpt == 2 ? const Color(0xFF2563EB) : (isDark ? Colors.white12 : Colors.black12),
                                       ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              "Option 2: Port 8883 (MQTTS SSL)",
-                                              style: TextStyle(
-                                                color: textClr,
-                                                fontSize: 14,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                            Text(
-                                              "Host: broker.emqx.io | Port: 8883 | TLS: Enabled",
-                                              style: TextStyle(color: subTextClr, fontSize: 11),
-                                            ),
-                                          ],
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          activeOpt == 2 ? Icons.radio_button_checked : Icons.radio_button_off,
+                                          color: activeOpt == 2 ? const Color(0xFF2563EB) : subTextClr,
+                                          size: 20,
                                         ),
-                                      ),
-                                    ],
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                "Option 2: Port 8883 (MQTTS SSL)",
+                                                style: TextStyle(
+                                                  color: textClr,
+                                                  fontSize: 14,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                              Text(
+                                                "Host: broker.emqx.io | Port: 8883 | TLS: Enabled",
+                                                style: TextStyle(color: subTextClr, fontSize: 11),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
+                              ],
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 15),
+                        Divider(color: isDark ? Colors.white24 : Colors.black12),
+                        const SizedBox(height: 10),
+                        Text(
+                          "TESTING & TOOLS",
+                          style: TextStyle(
+                            color: subTextClr,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1.0,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        InkWell(
+                          onTap: () {
+                            Navigator.pop(context);
+                            _showMqttSimulatorDialog();
+                          },
+                          borderRadius: BorderRadius.circular(10),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: isDark ? Colors.white12 : Colors.black12,
                               ),
-                            ],
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 15),
-                    ],
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.send_to_mobile_rounded, color: Color(0xFF2563EB), size: 20),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    "Simulate ESP RSSI Location Data",
+                                    style: TextStyle(color: textClr, fontSize: 14, fontWeight: FontWeight.w500),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 15),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -370,11 +405,6 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            // MQTT Zone & Link Receiver Card
-                            _buildZoneCard(),
-
-                            const SizedBox(height: 16),
-
                             // Digital ID Card/Badge (Gradient & Mode Adaptive)
                             _buildDigitalBadge(),
 
@@ -415,8 +445,31 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
           icon: Icon(Icons.menu_rounded, color: primaryColor, size: 28),
           onPressed: () => _scaffoldKey.currentState?.openDrawer(),
         ),
-        Column(
+        Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: Image.asset(
+                "assets/images/B_Connect.png",
+                width: 28,
+                height: 28,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF2563EB).withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Icon(
+                    Icons.blur_on,
+                    color: Color(0xFF2563EB),
+                    size: 18,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
             Text(
               "B Connect",
               style: TextStyle(
@@ -426,8 +479,6 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
                 letterSpacing: 0.5,
               ),
             ),
-            const SizedBox(height: 2),
-            _buildMqttStatusPill(),
           ],
         ),
         IconButton(
@@ -501,171 +552,6 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
     );
   }
 
-  // Zone & Embedded In-App WebView Card
-  Widget _buildZoneCard() {
-    final cardBgColor = _isDarkMode ? const Color(0xFF1E1B33) : Colors.white;
-    final borderColor = _isDarkMode ? const Color(0xFF2E2A4F) : const Color(0xFFE2E8F0);
-    final primaryTextColor = _isDarkMode ? Colors.white : const Color(0xFF0F172A);
-    final secondaryTextColor = _isDarkMode ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
-
-    return ValueListenableBuilder<ZoneResponse?>(
-      valueListenable: _mqttService.latestZoneNotifier,
-      builder: (context, zoneData, child) {
-        final currentUrl = zoneData?.website;
-
-        return Container(
-          padding: const EdgeInsets.all(16.0),
-          decoration: BoxDecoration(
-            color: cardBgColor,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: borderColor, width: 1.0),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.04),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF2563EB).withOpacity(0.1),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.radar_rounded,
-                          color: Color(0xFF2563EB),
-                          size: 18,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            "ZONE LOCATION",
-                            style: TextStyle(
-                              color: secondaryTextColor,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 1.0,
-                            ),
-                          ),
-                          Text(
-                            zoneData?.zone ?? "Waiting for ESP signal…",
-                            style: TextStyle(
-                              color: primaryTextColor,
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  Row(
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.open_in_full_rounded, color: Color(0xFF2563EB), size: 20),
-                        tooltip: "Full Screen View",
-                        onPressed: _showFullScreenWebView,
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.refresh_rounded, color: Color(0xFF2563EB), size: 20),
-                        tooltip: "Reload WebView",
-                        onPressed: () => _webViewController.reload(),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.send_to_mobile_rounded, color: Color(0xFF2563EB), size: 20),
-                        tooltip: "Simulate ESP RSSI Publish",
-                        onPressed: _showMqttSimulatorDialog,
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              // In-App Embedded WebView Address Bar
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: _isDarkMode ? const Color(0xFF131124) : const Color(0xFFF1F5F9),
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
-                  border: Border.all(color: borderColor),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.lock_rounded, size: 12, color: Color(0xFF10B981)),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        currentUrl ?? "No zone selected",
-                        style: const TextStyle(
-                          color: Color(0xFF0EA5E9),
-                          fontSize: 11,
-                          fontFamily: 'monospace',
-                          fontWeight: FontWeight.w600,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    InkWell(
-                      onTap: () {
-                        if (currentUrl != null) Clipboard.setData(ClipboardData(text: currentUrl));
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text("Copied URL to clipboard")),
-                        );
-                      },
-                      child: const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 4),
-                        child: Icon(Icons.copy_rounded, size: 12, color: Color(0xFF64748B)),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    InkWell(
-                      onTap: _showFullScreenWebView,
-                      child: const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 4),
-                        child: Icon(Icons.fullscreen_rounded, size: 16, color: Color(0xFF2563EB)),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // Embedded In-App WebView Frame
-              Container(
-                height: 320,
-                decoration: BoxDecoration(
-                  color: Colors.black,
-                  borderRadius: const BorderRadius.vertical(bottom: Radius.circular(10)),
-                  border: Border.all(color: borderColor),
-                ),
-                child: ClipRRect(
-                  borderRadius: const BorderRadius.vertical(bottom: Radius.circular(10)),
-                  child: currentUrl == null
-                      ? const Center(child: Text('Waiting for ESP signal…'))
-                      : WebViewWidget(controller: _webViewController),
-                ),
-              ),
-            ],
-          ),
-        );
-
-      },
-    );
-  }
-
   void _onZoneReceived() {
     final zone = _mqttService.latestZoneNotifier.value;
     if (zone == null) {
@@ -676,7 +562,9 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
     final key = '${zone.zone}|${zone.website}';
     if (_lastShowKey == key) return;
     _lastShowKey = key;
-    if (!_showIsOpen) _showFullScreenWebView();
+    if (!_showIsOpen) {
+      _showFullScreenWebView();
+    }
   }
 
   Future<void> _showFullScreenWebView() async {
@@ -690,14 +578,6 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
     } finally {
       _showIsOpen = false;
       await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-      final url = _mqttService.latestZoneNotifier.value?.website;
-      if (mounted && url != null) {
-        try {
-          await _webViewController.loadRequest(Uri.parse(url));
-        } catch (error) {
-          _beaconService.addLog('Dashboard WebView error: $error');
-        }
-      }
     }
   }
 
@@ -845,10 +725,18 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
                     : const Color(0xFFF1F5F9),
                 child: Row(
                   children: [
-                    Icon(
-                      Icons.menu_open_rounded,
-                      color: primaryColor,
-                      size: 24,
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: Image.asset(
+                        "assets/images/B_Connect.png",
+                        width: 26,
+                        height: 26,
+                        errorBuilder: (context, error, stackTrace) => Icon(
+                          Icons.menu_open_rounded,
+                          color: primaryColor,
+                          size: 24,
+                        ),
+                      ),
                     ),
                     const SizedBox(width: 12),
                     Text(
@@ -1251,28 +1139,6 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // App Logo
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: Image.asset(
-              "assets/images/B_Connect.png",
-              width: 42,
-              height: 42,
-              errorBuilder: (context, error, stackTrace) => Container(
-                width: 42,
-                height: 42,
-                color: const Color(0xFF2563EB).withOpacity(0.1),
-                child: const Icon(
-                  Icons.blur_on,
-                  color: Color(0xFF2563EB),
-                  size: 24,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-
-
           Text(
             "DEVICE SUFFIX ID",
             style: TextStyle(
@@ -1300,6 +1166,8 @@ class _BeaconDashboardScreenState extends State<BeaconDashboardScreen> {
               const SizedBox(width: 8),
             ],
           ),
+          const SizedBox(height: 12),
+          _buildMqttStatusPill(),
         ],
       ),
     );
